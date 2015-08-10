@@ -295,6 +295,34 @@
         </configuration>
       </plugin>
 
+      <!-- Plugin to compile Scala code -->
+      <plugin>
+        <groupId>org.scala-tools</groupId>
+        <artifactId>maven-scala-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>compile</id>
+            <goals>
+              <goal>compile</goal>
+            </goals>
+            <phase>compile</phase>
+          </execution>
+          <execution>
+            <id>test-compile</id>
+            <goals>
+              <goal>testCompile</goal>
+            </goals>
+            <phase>test-compile</phase>
+          </execution>
+          <execution>
+            <phase>process-resources</phase>
+            <goals>
+              <goal>compile</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-deploy-plugin</artifactId>
@@ -359,30 +387,45 @@
         </executions>
       </plugin>
 
-      <!-- Plugin to compile Scala code -->
       <plugin>
-        <groupId>org.scala-tools</groupId>
-        <artifactId>maven-scala-plugin</artifactId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <version>2.8</version>
         <executions>
           <execution>
-            <id>compile</id>
+            <id>copy-dependencies</id>
+            <phase>package</phase>
             <goals>
-              <goal>compile</goal>
+              <goal>copy-dependencies</goal>
             </goals>
-            <phase>compile</phase>
+            <configuration>
+              <outputDirectory>${project.build.directory}/../../interpreter/r</outputDirectory>
+              <overWriteReleases>false</overWriteReleases>
+              <overWriteSnapshots>false</overWriteSnapshots>
+              <overWriteIfNewer>true</overWriteIfNewer>
+              <includeScope>runtime</includeScope>
+            </configuration>
           </execution>
           <execution>
-            <id>test-compile</id>
+            <id>copy-artifact</id>
+            <phase>package</phase>
             <goals>
-              <goal>testCompile</goal>
+              <goal>copy</goal>
             </goals>
-            <phase>test-compile</phase>
-          </execution>
-          <execution>
-            <phase>process-resources</phase>
-            <goals>
-              <goal>compile</goal>
-            </goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/../../interpreter/r</outputDirectory>
+              <overWriteReleases>false</overWriteReleases>
+              <overWriteSnapshots>false</overWriteSnapshots>
+              <overWriteIfNewer>true</overWriteIfNewer>
+              <includeScope>runtime</includeScope>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>${project.groupId}</groupId>
+                  <artifactId>${project.artifactId}</artifactId>
+                  <version>${project.version}</version>
+                  <type>${project.packaging}</type>
+                </artifactItem>
+              </artifactItems>
+            </configuration>
           </execution>
         </executions>
       </plugin>
