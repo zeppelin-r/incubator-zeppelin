@@ -64,7 +64,6 @@ def testPackage(pack : String, fail : Boolean = false, license : Boolean = false
                             case false => {
                               val message: String = s"""The ${pack} package could not be loaded.""" +
                                                     {if (license) "We cannot install it for you because it is published under the GPL3 license."
-
                                                     else ""}
                               if (fail) throw new RException(message)
                               return false
@@ -78,15 +77,15 @@ object RInterpreter {
   logger.info("logging inside the RInterpreter singleton")
 
   lazy val props: Map[String, InterpreterProperty] = new InterpreterPropertyBuilder()
-         .add("spark.home", SparkInterpreter.getSystemDefault("SPARK_HOME", "spark.home", ""),
-              "Spark home path. Should be provided for SparkR")
+          .add("spark.home", SparkInterpreter.getSystemDefault("SPARK_HOME", "spark.home", ""),
+               "Spark home path. Should be provided for SparkR")
           .add("r.home", SparkInterpreter.getSystemDefault("R_HOME", "r.home", ""), "R home path.")
           .add("rscala.home", SparkInterpreter.getSystemDefault("RSCALA_HOME", "rscala.home", ""), "Path to library directory containing rScala R Package")
           .add("rhadoop.cmd", SparkInterpreter.getSystemDefault("HADOOOP_CMD", "rhadoop.cmd", ""), "Usually /usr/bin/hadoop")
           .add("rhadooop.streamingjar", SparkInterpreter.getSystemDefault("HADOOP_STREAMING", "rhadoop.streamingjar", ""), "Usually /usr/lib/hadoop/contrib/streaming/hadoop-streaming-<version>.jar")
           .add("rscala.debug", "false", "Whether to turn on rScala debugging") // FIXME:  Implemented but not tested
           .add("rscala.timeout", "60", "Timeout for rScala") // TODO:  Not yet implemented
-         .build
+          .build
 
   def getProps() = {
 //    register()

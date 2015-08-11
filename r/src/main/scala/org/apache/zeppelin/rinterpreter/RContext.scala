@@ -49,9 +49,21 @@ class RContext (private val in: DataInputStream,
     case Some(x: SparkInterpreter) => x.getZeppelinContext
     case _ => new util.HashMap[String, Object]()
   }
-  private lazy val sparkEnvir                                     = (property - "spark.app.id" -
-    "spark.app.name" - "spark.driver.port" - "spark.tachyonStore.folderName" - "spark.repl.class.uri" -
-    "spark.fileserver.uri" - "spark.master" - "spark.jars")
+  private lazy val sparkEnvir                                     = (property
+     - "spark.app.id"
+     - "spark.app.name"
+     - "spark.driver.host"
+     - "spark.driver.port"
+     - "spark.externalBlockStore.folderName"
+     - "spark.files"
+     - "spark.fileserver.uri"
+     - "spark.jars"
+     - "spark.master"
+     - "spark.tachyonStore.folderName"
+     - "spark.repl.class.uri"
+     - "spark.submit.pyArchives"
+     - "spark.yarn.dist.files")
+
     .map({ case (key: String, value: String) => key + " = \"" + value + "\" " }).mkString(",")
   // A reference to the R object embodying the Spark Context
   // In an ideal world this would use the existing spark context.
@@ -391,4 +403,3 @@ q(save='no')
   }
 
 }
-
