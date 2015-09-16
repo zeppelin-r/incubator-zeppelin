@@ -49,122 +49,91 @@ class RContext (private val in: DataInputStream,
     case Some(x: SparkInterpreter) => x.getZeppelinContext
     case _ => new util.HashMap[String, Object]()
   }
-  private lazy val sparkEnvir                                     = (property
-     - "spark.app.id"
-     - "spark.app.name"
-     - "spark.driver.host"
-     - "spark.driver.port"
-     - "spark.externalBlockStore.folderName"
-     - "spark.files"
-     - "spark.fileserver.uri"
-     - "spark.jars"
-     - "spark.master"
-     - "spark.tachyonStore.folderName"
-     - "spark.repl.class.uri"
-     - "spark.submit.pyArchives"
-     - "spark.yarn.dist.files")
-
-    .map({ case (key: String, value: String) => key + " = \"" + value + "\" " }).mkString(",")
-  // A reference to the R object embodying the Spark Context
-  // In an ideal world this would use the existing spark context.
 
 	private val sparkRContextInput: Promise[RObjectRef] = Promise[RObjectRef]()
 	private val sparkRContext     : Future[RObjectRef]  = sparkRContextInput.future
 
 	private def getSparkRContext(): Option[RObjectRef] = this.synchronized {
-		                                                                       logger.info("Getting SparkR Context")
-		                                                                       if (sparkRContext
-			                                                                       .isCompleted) {
-			                                                                       return sparkRContext.value
-				                                                                       .get.toOption
-		                                                                       }
-		                                                                       logger.info("Making new SparkR Context")
-		                                                                       extractSparkConf()
-		                                                                       logger.info("Finished getting a spark conf")
-		                                                                       val sparkHome = getProperty(
-			                                                                       "spark.home",
-			                                                                       "/usr/local/spark")
-		                                                                       if (!evalB0( s"""require(lib.loc=\"${sparkHome}/R/lib\", SparkR)""")) {
-			                                                                       throw new InterpreterException(
-				                                                                       "SparkR package not installed")
-		                                                                       }
-		                                                                       logger.info("Loaded SparkR")
-		                                                                       val sparkMaster = getProperty("spark.master")
-		                                                                       val sparkJars = getProperty("spark.jars")
-		                                                                       val commandParams = s"""master="${sparkMaster}",
-		                                                                                               |sparkHome = "${sparkHome}",
-		                                                                                               |sparkEnvir = "${sparkEnvir}
-		                                                                                               |""".stripMargin + {
-			                                                                       if (sparkJars.length > 0) {
-				                                                                       "," + sparkJars
-			                                                                       }
-			                                                                       else {
-				                                                                       ""
-			                                                                       }
-		                                                                       }
-		                                                                       logger.info(commandParams)
-		                                                                       val command = s"""sc <- SparkR::sparkR.init(${commandParams})"""
-			                                                                       .stripMargin
-		                                                                       logger.info(command)
-		                                                                       eval(command)
-		                                                                       val result = getR("sc")
-		                                                                       if (!testRObjectClass(result, "jobj")) {
-			                                                                       logger
-				                                                                       .warn("Spark Context is not a jobj")
-		                                                                       }
-		                                                                       sparkRContextInput.success(result)
-		                                                                       getSparkRContext
-	                                                                       }
+    logger.info("Getting SparkR Context")
+    if (sparkRContext.isCompleted) {
+        return sparkRContext.value.get.toOption
+    }
+    logger.info("Making a new SparkR Context")
+    val conf = extractSparkConf()
+    logger.info(conf.toList.mkString(""))
+    if (conf.isEmpty) {
+      logger.info("No SparkConf available")
+      return None
+    }
+    logger.info("Finished getting SparkConf")
+    val sparkHome = conf("spark.home")
+    val requireSparkR = { if (!getSparkRInRLib()) "require(SparkR)"
+                          else s"""require(lib.loc="${sparkHome}/R/lib", SparkR)""" }
+    if (!evalB0(requireSparkR)) {
+      throw new InterpreterException("SparkR package not installed")
+    }
+    logger.info("Loaded SparkR")
+    val sparkMaster = conf("spark.master")
+    val sparkJars = conf("spark.jars")
+    val sparkEnvir = buildSparkEnvir(conf)
+    val commandParams = s"""master = "${sparkMaster}",
+                          |appName = "zeppelin-SparkR",
+                          |sparkHome = "${sparkHome}",
+                          |sparkEnvir = ${sparkEnvir},
+                          |sparkJars = "${sparkJars}"
+                          |""".stripMargin
+
+    logger.info(commandParams)
+    val command = s"sc <- sparkR.init(${commandParams})"
+    logger.info(command)
+    eval(command)
+    val result = getR("sc")
+    if (!testRObjectClass(result, "jobj")) {
+      logger.warn("SparkContext is not a jobj")
+    }
+    sparkRContextInput.success(result)
+    getSparkRContext()
+  }
 
 	private val sparkRSQLContextInput: Promise[RObjectRef] = Promise[RObjectRef]()
 	private val sparkRSQLContext     : Future[RObjectRef]  = sparkRSQLContextInput.future
 
 	def getSparkRSQLContext(): Option[RObjectRef] = this.synchronized {
-		                                                                  if (!sparkRContext.isCompleted) {
-			                                                                  logger
-				                                                                  .info(
-					                                                                  "Tried to get a SQL Context without a Spark Context")
-			                                                                  return None
-		                                                                  }
-		                                                                  if (sparkRSQLContext
-			                                                                  .isCompleted) {
-			                                                                  return sparkRSQLContext.value.get
-				                                                                  .toOption
-		                                                                  }
-		                                                                  evalR( s"""sqlContext <- sparkRSQL.init(sc)""")
-		                                                                  val result = getR("sqlContext")
-		                                                                  if (!testRObjectClass(result, "jobj")) {
-			                                                                  logger.warn("Spark SQL Context is not a jobj")
-		                                                                  }
-		                                                                  sparkRSQLContextInput.success(result)
-		                                                                  getSparkRSQLContext
-	                                                                  }
+    if (!sparkRContext.isCompleted) {
+      logger.info("Tried to get a SQL Context without a Spark Context")
+      return None
+    }
+    if (sparkRSQLContext.isCompleted) {
+      return sparkRSQLContext.value.get.toOption
+    }
+    eval("sqlContext <- sparkRSQL.init(sc)")
+    val result = getR("sqlContext")
+    if (!testRObjectClass(result, "jobj")) {
+      logger.warn("Spark SQL Context is not a jobj")
+    }
+    sparkRSQLContextInput.success(result)
+    getSparkRSQLContext
+  }
 
 	private val sparkRHiveContextInput: Promise[RObjectRef] = Promise[RObjectRef]()
 	private val sparkRHiveContext     : Future[RObjectRef]  = sparkRHiveContextInput.future
 
 	def getSparkRHiveContext(): Option[RObjectRef] = this.synchronized {
-		                                                                   if (!sparkRContext.isCompleted) {
-			                                                                   logger
-				                                                                   .info(
-					                                                                   "Tried to get a Hive Context without a Spark Context")
-			                                                                   return None
-		                                                                   }
-		                                                                   if (sparkRHiveContext
-			                                                                   .isCompleted) {
-			                                                                   return sparkRHiveContext.value
-				                                                                   .get.toOption
-		                                                                   }
-		                                                                   evalR( s"""sqlContext <- sparkRHive.init(sc)""")
-		                                                                   val result = getR("sparkRHive")
-		                                                                   if (!testRObjectClass(result, "jobj")) {
-			                                                                   logger.warn("Spark Hive Context is not a jobj")
-		                                                                   }
-		                                                                   sparkRHiveContextInput.success(result)
-		                                                                   getSparkRHiveContext
-	                                                                   }
-
-
+    if (!sparkRContext.isCompleted) {
+     logger.info("Tried to get a Hive Context without a Spark Context")
+     return None
+   }
+   if (sparkRHiveContext.isCompleted) {
+     return sparkRHiveContext.value.get.toOption
+   }
+   eval("sqlContext <- sparkRHive.init(sc)")
+   val result = getR("sparkRHive")
+   if (!testRObjectClass(result, "jobj")) {
+     logger.warn("Spark Hive Context is not a jobj")
+   }
+   sparkRHiveContextInput.success(result)
+   getSparkRHiveContext
+ }
 
   private      val propertyInput   : Promise[Properties]          = Promise[Properties]()
   private      val propertyOutput  : Future[Properties]           = propertyInput.future
@@ -217,17 +186,15 @@ class RContext (private val in: DataInputStream,
 			                                       logger.info("Reusing rContext.")
 		                                       }
 		                                       case false => {
-			                                       try { {
+			                                       try {
 				                                       logger.info("Opening rContext")
-				                                       eval(".zeppenv <- new.env()")
-				                                       eval(".zbuffer <- new.env()")
 				                                       eval(
-					                                       """
+                                                 """.zeppenv <- new.env()
+				                                           |.zbuffer <- new.env()
 					                                         |z.put <- function(identifier, object) {
 					                                         |   assign(identifier, object, envir = .zbuffer)
 					                                         |}
-					                                       """.
-						                                       stripMargin)
+					                                       """.stripMargin)
 
 				                                       eval(
 					                                       """.zcompletion <- function(buf, cursor) {
@@ -237,7 +204,6 @@ class RContext (private val in: DataInputStream,
 					                                         |utils:::.completeToken()
 					                                         |utils:::.retrieveCompletions()
 					                                         |}""".stripMargin)
-			                                       }
 			                                       } catch {
 				                                       case e: Exception => {
 					                                       logger.error(
@@ -250,51 +216,32 @@ class RContext (private val in: DataInputStream,
 			                                       isOpen = true
 			                                       // Now that we're open, build the spark context
 			                                       buildSparkContexts()
-			                                       buildRHadoop()
 		                                       }
 	                                       }
                                        }
 
 	// FIXME:  Getting a match error somewhere around here
-	private def buildSparkContexts(): Boolean = try { {
+	private def buildSparkContexts(): Boolean = try {
 		getSparkRContext() match {
-			case Some(x: RObjectRef) ⇒ {
+			case Some(x: RObjectRef) => {
 				logger.info("SparkR Context Active")
-				getSparkRSQLContext match {
-					case Some(x: RObjectRef) ⇒ logger.info("Spark SQL Context Active")
-					case None ⇒ logger.info("Spark SQL Context Inactive")
+				getSparkRSQLContext() match {
+					case Some(x: RObjectRef) => logger.info("Spark SQL Context Active")
+					case None => logger.info("Spark SQL Context Inactive")
 				}
 				getSparkRHiveContext() match {
-					case Some(x: RObjectRef) ⇒ logger.info("Spark Hive Context Active")
-					case None ⇒ logger.info("Spark Hive Context Inactive")
+					case Some(x: RObjectRef) => logger.info("Spark Hive Context Active")
+					case None => logger.info("Spark Hive Context Inactive")
 				}
 				true
 			}
-			case None ⇒ false
+			case None => false
 		}
-	}
+	  true
 	} catch {
-		case e: Exception => logger.error("Could not create sparkR context " + e.getMessage + e.getStackTrace)
-			return false
-	} finally {
-		return true
+		case e: Exception => logger.error("Could not create sparkR context " + e + e.printStackTrace())
+		false
 	}
-
-	// TODO:  Implement setting the environment based on properties; add ravro, etc.
-	private def buildRHadoop(): Boolean = try { {
-		evalB0(s"require(rmr2)") match {
-			case true => {
-				logger.info("RMR2 Loaded")
-				true
-			}
-			case false => {
-				logger.info("The rmr2 package could not be loaded.")
-				false
-			}
-		}
-	}
-	}
-
 
   def close: Unit = if (isOpen) {
     exit()
@@ -319,11 +266,11 @@ class RContext (private val in: DataInputStream,
           j.getInnerInterpreter match {
 
             case ed: SparkInterpreter => sparkInterpreterP.success(ed)
-            case _ ⇒ {}
+            case _ => {}
           }
         }
         case m: SparkInterpreter => sparkInterpreterP.success(m)
-        case _ ⇒ {}
+        case _ => {}
       }
 
     if (!sparkInterpreterP.isCompleted) {
@@ -333,14 +280,45 @@ class RContext (private val in: DataInputStream,
   }
 
   // Update properties based on spark configuration
-  private def extractSparkConf(): Unit = sc match {
-    case Some(x: SparkContext) => setProperty(x.getConf.getAll.toMap)
-    case _ => {}
+  private def extractSparkConf(): Map[String, String] = sc match {
+    case Some(x: SparkContext) => {
+      val excludeList = List("spark.app.id", "spark.app.name", "spark.driver.host",
+                            "spark.driver.port", "spark.externalBlockStore.folderName",
+                            "spark.files", "spark.fileserver.uri", "spark.jars", "spark.master",
+                            "spark.tachyonStore.folderName", "spark.repl.class.uri",
+                            "spark.submit.pyArchives", "spark.yarn.dist.files")
+      (x.getConf.getAll.toMap).withDefaultValue("") -- excludeList
+    }
+    case _ => Map[String, String]().withDefaultValue("")
+  }
+
+  private def buildSparkEnvir(sparkConf: Map[String, String]): String = {
+    "list(" + sparkConf.foldLeft("")( (accum, kv) => kv match {
+      case ("spark.master", _) => ""
+      case ("spark.jars", _) => ""
+      case (key, value) => {
+        if (key.startsWith("spark") && !value.isEmpty()) {
+          s"""${if (accum.length > 0) ", " else ""}${key}="${value}" """
+        } else {
+          ""
+        }
+      }
+    }) + ")"
   }
 
   def setProperty(properties: Map[String, String]): Unit = property.putAll(properties)
   logger.info("RContext Finished Starting")
 
+  private def getSparkRInRLib(): Boolean = {
+    try {
+      property.getProperty("r.sparkr.in.r.lib", "false").toBoolean
+    } catch {
+      case e: Exception => {
+        logger.info("Exception getting SparkRInRLib " + e)
+      }
+      false
+    }
+  }
 }
 
 import scala.concurrent.duration._
@@ -355,36 +333,23 @@ object RContext {
   private val rcon           = rconInput.future
 
   def apply(property: Properties) : RContext = synchronized {
-	                                                            rcon.isCompleted match {
-		                                                            case false => {
-			                                                            val debug: Boolean = try { {
-				                                                            property.getProperty("rscala.debug", "false")
-					                                                            .toBoolean
-			                                                            }
-			                                                            } catch {
-				                                                            case e: Exception ⇒ {
-					                                                            logger.info("Exception getting debug status " + 3)
-					                                                            true
-				                                                            }
-			                                                            }
-        import scala.sys.process._
+    rcon.isCompleted match {
+      case false => {
+        val debug = getDebugValue(property)
         logger.debug("Creating processIO")
         var cmd: PrintWriter = null
         val command = RClient.defaultRCmd +: RClient.defaultArguments
         val processCmd = Process(command)
 
-        val processIO = new ProcessIO(
-                                       o => { cmd = new PrintWriter(o) },
-                                       reader("STDOUT DEBUG: "),
-                                       reader("STDERR DEBUG: "),
-                                       true
-                                     )
+        val processIO = new ProcessIO(o => { cmd = new PrintWriter(o) },
+                                      reader("STDOUT DEBUG: "),
+                                      reader("STDERR DEBUG: "),
+                                      true)
         val portsFile = File.createTempFile("rscala-","")
         val processInstance = processCmd.run(processIO)
         val snippet = s"""
 rscala:::rServe(rscala:::newSockets('${portsFile.getAbsolutePath.replaceAll(File.separator,"/")}',debug=${if ( debug ) "TRUE" else "FALSE"},timeout=${timeout}))
-q(save='no')
-    """
+q(save='no')"""
         while ( cmd == null ) Thread.sleep(100)
         logger.debug("sending snippet " + snippet)
         cmd.println(snippet)
@@ -393,13 +358,23 @@ q(save='no')
         sockets.out.writeInt(OK)
         sockets.out.flush()
         assert( Helper.readString(sockets.in) == org.apache.zeppelin.rinterpreter.rscala.Version )
-			                                                            rconInput
-				                                                            .success(new RContext(sockets.in, sockets.out))
-			                                                            Await.result(rcon, 60 seconds).setProperty(property)
+
+        rconInput.success(new RContext(sockets.in, sockets.out))
+        Await.result(rcon, 60 seconds).setProperty(property)
         apply(property)
       }
-		                                                            case true => Await.result(rcon, 60 seconds)
+      case true => Await.result(rcon, 60 seconds)
     }
   }
 
+  def getDebugValue(property: Properties): Boolean = {
+    try {
+      property.getProperty("rscala.debug", "false").toBoolean
+    } catch {
+      case e: Exception => {
+        logger.info("Exception getting debug status " + e)
+      }
+      false
+    }
+  }
 }

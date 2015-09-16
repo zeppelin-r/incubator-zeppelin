@@ -8,18 +8,19 @@ import java.util.List;
 import java.util.Properties;
 
 /**
-* Created by aelberg on 8/5/15.
+* Created by felixcheung on 8/12/15.
 */
-public class Rmarkdown extends Interpreter implements WrappedInterpreter {
-  RMarkdownInterpreter intp;
+public class SparkR extends Interpreter implements WrappedInterpreter {
+  SparkRInterpreter intp;
   static {
-    Interpreter.register("rmark", "r", Rmarkdown.class.getName(), RInterpreter.getProps());
+    Interpreter.register("r", "spark", SparkR.class.getName(), RInterpreter.getProps());
   }
-  public Rmarkdown(Properties property) {
+
+  public SparkR(Properties property) {
     super(property);
-    intp = new RMarkdownInterpreter(property);
+    intp = new SparkRInterpreter(property);
   }
-  public Rmarkdown() {
+  public SparkR() {
     this(new Properties());
   }
 
